@@ -752,34 +752,46 @@
         svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="#7a8589">Không có dữ liệu trong filter này</text>`;
         return;
       }
-      const width = 1100, height = 400, pad = { l: 54, r: 70, t: 42, b: 62 };
+      const width = 1100, height = 410, pad = { l: 58, r: 74, t: 44, b: 72 };
       const plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
-      const maxRev = Math.max(...data.map((d) => d.revenue), 1);
-      const maxConv = Math.max(...data.map((d) => d.conversion), 0.01);
-      const barGap = Math.max(3, data.length > 30 ? 3 : 7);
-      const bw = Math.max(5, (plotW / data.length) - barGap);
-      const x = (i) => pad.l + i * (plotW / data.length) + barGap / 2;
+      const split = data.map((d) => {
+        const bucket = items.filter((r) => keyFor(r, grain) === d.key);
+        return {
+          ...d,
+          tiktokRevenue: bucket.filter((r) => r.platform === "TikTok").reduce((sum, r) => sum + r.revenue, 0),
+          shopeeRevenue: bucket.filter((r) => r.platform === "Shopee").reduce((sum, r) => sum + r.revenue, 0),
+        };
+      });
+      const maxRev = Math.max(...split.map((d) => d.revenue), 1);
+      const maxConv = Math.max(...split.map((d) => d.conversion), 0.01);
+      const barGap = Math.max(4, split.length > 30 ? 4 : 8);
+      const bw = Math.max(6, (plotW / split.length) - barGap);
+      const x = (i) => pad.l + i * (plotW / split.length) + barGap / 2;
       const cx = (i) => x(i) + bw / 2;
       const yRev = (v) => pad.t + plotH - (v / maxRev) * plotH;
       const yConv = (v) => pad.t + plotH - (v / maxConv) * plotH;
       const labelMoney = (v) => v >= 1000000000 ? `${(v / 1000000000).toFixed(1)}B` : v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : money(v);
-      const labelEvery = data.length <= 14 ? 1 : data.length <= 31 ? 2 : Math.ceil(data.length / 14);
-      const bars = data.map((d, i) => {
-        const h = Math.max(0, plotH - (yRev(d.revenue) - pad.t));
+      const labelEvery = split.length <= 14 ? 1 : split.length <= 31 ? 2 : Math.ceil(split.length / 14);
+      const bars = split.map((d, i) => {
+        const shopeeH = plotH * d.shopeeRevenue / maxRev;
+        const tiktokH = plotH * d.tiktokRevenue / maxRev;
+        const shopeeY = pad.t + plotH - shopeeH;
+        const tiktokY = shopeeY - tiktokH;
         const showLabel = i % labelEvery === 0 || d.revenue === maxRev;
-        return `<rect x="${x(i)}" y="${yRev(d.revenue)}" width="${bw}" height="${h}" rx="2" fill="#4f9a92" opacity="0.96"></rect>
-          ${showLabel ? `<text x="${cx(i)}" y="${Math.max(16, yRev(d.revenue) - 10)}" text-anchor="middle" fill="#555" font-size="15" font-weight="800">${labelMoney(d.revenue)}</text>` : ""}`;
+        return `<rect x="${x(i)}" y="${shopeeY}" width="${bw}" height="${shopeeH}" rx="2" fill="#f4a340"></rect>
+          <rect x="${x(i)}" y="${tiktokY}" width="${bw}" height="${tiktokH}" rx="2" fill="#171717"></rect>
+          ${showLabel ? `<text x="${cx(i)}" y="${Math.max(16, tiktokY - 10)}" text-anchor="middle" fill="#555" font-size="15" font-weight="800">${labelMoney(d.revenue)}</text>` : ""}`;
       }).join("");
-      const points = data.map((d, i) => `${cx(i)},${yConv(d.conversion)}`).join(" ");
-      const dotLabels = data.map((d, i) => {
+      const points = split.map((d, i) => `${cx(i)},${yConv(d.conversion)}`).join(" ");
+      const dotLabels = split.map((d, i) => {
         const showLabel = i % labelEvery === 0 || d.conversion === maxConv;
-        return `<circle cx="${cx(i)}" cy="${yConv(d.conversion)}" r="4" fill="#78ddd2" stroke="#fff" stroke-width="2"></circle>
+        return `<circle cx="${cx(i)}" cy="${yConv(d.conversion)}" r="4" fill="#76ddd2" stroke="#fff" stroke-width="2"></circle>
           ${showLabel ? `<text x="${cx(i) + 7}" y="${yConv(d.conversion) - 10}" fill="#666" font-size="14" font-weight="800">${pct(d.conversion)}</text>` : ""}`;
       }).join("");
-      const xLabels = data.map((d, i) => {
-        const stride = Math.ceil(data.length / 9);
+      const xLabels = split.map((d, i) => {
+        const stride = Math.ceil(split.length / 9);
         if (i % stride) return "";
-        return `<text x="${cx(i)}" y="${height - 24}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
+        return `<text x="${cx(i)}" y="${height - 30}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
       }).join("");
       const grid = [0, .25, .5, .75, 1].map((t) => {
         const y = pad.t + plotH - t * plotH;
@@ -792,12 +804,14 @@
         <rect width="${width}" height="${height}" fill="#fff"></rect>
         ${grid}
         ${bars}
-        <polyline points="${points}" fill="none" stroke="#86ded4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+        <polyline points="${points}" fill="none" stroke="#76ddd2" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline>
         ${dotLabels}${xLabels}
-        <circle cx="${width / 2 - 68}" cy="${height - 10}" r="6" fill="#4f9a92"></circle>
-        <text x="${width / 2 - 56}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">Doanh số</text>
-        <line x1="${width / 2 + 52}" x2="${width / 2 + 92}" y1="${height - 10}" y2="${height - 10}" stroke="#86ded4" stroke-width="5" stroke-linecap="round"></line>
-        <text x="${width / 2 + 100}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">Tỷ lệ chuyển đổi</text>`;
+        <rect x="${width / 2 - 186}" y="${height - 16}" width="13" height="13" fill="#171717"></rect>
+        <text x="${width / 2 - 166}" y="${height - 5}" fill="#666" font-size="14" font-weight="700">TikTok doanh số</text>
+        <rect x="${width / 2 - 28}" y="${height - 16}" width="13" height="13" fill="#f4a340"></rect>
+        <text x="${width / 2 - 8}" y="${height - 5}" fill="#666" font-size="14" font-weight="700">Shopee doanh số</text>
+        <line x1="${width / 2 + 144}" x2="${width / 2 + 184}" y1="${height - 10}" y2="${height - 10}" stroke="#76ddd2" stroke-width="5" stroke-linecap="round"></line>
+        <text x="${width / 2 + 192}" y="${height - 5}" fill="#666" font-size="14" font-weight="700">Tỷ lệ chuyển đổi chung</text>`;
     }
 
     function renderHoursChart(items) {
@@ -807,33 +821,45 @@
         svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="#7a8589">Không có dữ liệu trong filter này</text>`;
         return;
       }
-      const width = 1100, height = 400, pad = { l: 58, r: 78, t: 42, b: 62 };
+      const width = 1100, height = 410, pad = { l: 62, r: 82, t: 44, b: 72 };
       const plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
-      const maxHours = Math.max(...data.map((d) => d.hours), 1);
-      const maxRevHour = Math.max(...data.map((d) => d.revenuePerHour), 1);
-      const barGap = Math.max(3, data.length > 30 ? 3 : 7);
-      const bw = Math.max(5, (plotW / data.length) - barGap);
-      const x = (i) => pad.l + i * (plotW / data.length) + barGap / 2;
+      const split = data.map((d) => {
+        const bucket = items.filter((r) => keyFor(r, grain) === d.key);
+        return {
+          ...d,
+          tiktokHours: bucket.filter((r) => r.platform === "TikTok").reduce((sum, r) => sum + r.duration_hours, 0),
+          shopeeHours: bucket.filter((r) => r.platform === "Shopee").reduce((sum, r) => sum + r.duration_hours, 0),
+        };
+      });
+      const maxHours = Math.max(...split.map((d) => d.hours), 1);
+      const maxRevHour = Math.max(...split.map((d) => d.revenuePerHour), 1);
+      const barGap = Math.max(4, split.length > 30 ? 4 : 8);
+      const bw = Math.max(6, (plotW / split.length) - barGap);
+      const x = (i) => pad.l + i * (plotW / split.length) + barGap / 2;
       const cx = (i) => x(i) + bw / 2;
       const yHours = (v) => pad.t + plotH - (v / maxHours) * plotH;
       const yRevHour = (v) => pad.t + plotH - (v / maxRevHour) * plotH;
-      const labelEvery = data.length <= 14 ? 1 : data.length <= 31 ? 2 : Math.ceil(data.length / 14);
-      const bars = data.map((d, i) => {
-        const h = Math.max(0, plotH - (yHours(d.hours) - pad.t));
+      const labelEvery = split.length <= 14 ? 1 : split.length <= 31 ? 2 : Math.ceil(split.length / 14);
+      const bars = split.map((d, i) => {
+        const shopeeH = plotH * d.shopeeHours / maxHours;
+        const tiktokH = plotH * d.tiktokHours / maxHours;
+        const shopeeY = pad.t + plotH - shopeeH;
+        const tiktokY = shopeeY - tiktokH;
         const showLabel = i % labelEvery === 0 || d.hours === maxHours;
-        return `<rect x="${x(i)}" y="${yHours(d.hours)}" width="${bw}" height="${h}" rx="2" fill="#2f8379" opacity="0.98"></rect>
-          ${showLabel ? `<text x="${cx(i)}" y="${Math.max(16, yHours(d.hours) - 10)}" text-anchor="middle" fill="#555" font-size="14" font-weight="800">${one(d.hours)}h</text>` : ""}`;
+        return `<rect x="${x(i)}" y="${shopeeY}" width="${bw}" height="${shopeeH}" rx="2" fill="#f4a340"></rect>
+          <rect x="${x(i)}" y="${tiktokY}" width="${bw}" height="${tiktokH}" rx="2" fill="#171717"></rect>
+          ${showLabel ? `<text x="${cx(i)}" y="${Math.max(16, tiktokY - 10)}" text-anchor="middle" fill="#555" font-size="14" font-weight="800">${one(d.hours)}h</text>` : ""}`;
       }).join("");
-      const points = data.map((d, i) => `${cx(i)},${yRevHour(d.revenuePerHour)}`).join(" ");
-      const lineLabels = data.map((d, i) => {
+      const points = split.map((d, i) => `${cx(i)},${yRevHour(d.revenuePerHour)}`).join(" ");
+      const lineLabels = split.map((d, i) => {
         const showLabel = i % labelEvery === 0 || d.revenuePerHour === maxRevHour;
-        return `<circle cx="${cx(i)}" cy="${yRevHour(d.revenuePerHour)}" r="4" fill="#f4b541" stroke="#fff" stroke-width="2"></circle>
+        return `<circle cx="${cx(i)}" cy="${yRevHour(d.revenuePerHour)}" r="4" fill="#2f8379" stroke="#fff" stroke-width="2"></circle>
           ${showLabel ? `<text x="${cx(i) + 7}" y="${yRevHour(d.revenuePerHour) - 10}" fill="#666" font-size="13" font-weight="800">${money(d.revenuePerHour)}</text>` : ""}`;
       }).join("");
-      const labels = data.map((d, i) => {
-        const stride = Math.ceil(data.length / 9);
+      const labels = split.map((d, i) => {
+        const stride = Math.ceil(split.length / 9);
         if (i % stride) return "";
-        return `<text x="${cx(i)}" y="${height - 24}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
+        return `<text x="${cx(i)}" y="${height - 30}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
       }).join("");
       const grid = [0, .25, .5, .75, 1].map((t) => {
         const y = pad.t + plotH - t * plotH;
@@ -846,12 +872,14 @@
         <rect width="${width}" height="${height}" fill="#fff"></rect>
         ${grid}
         ${bars}
-        <polyline points="${points}" fill="none" stroke="#f4b541" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+        <polyline points="${points}" fill="none" stroke="#2f8379" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline>
         ${lineLabels}${labels}
-        <circle cx="${width / 2 - 82}" cy="${height - 10}" r="6" fill="#2f8379"></circle>
-        <text x="${width / 2 - 70}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">Số giờ live</text>
-        <line x1="${width / 2 + 44}" x2="${width / 2 + 84}" y1="${height - 10}" y2="${height - 10}" stroke="#f4b541" stroke-width="5" stroke-linecap="round"></line>
-        <text x="${width / 2 + 92}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">GMV/h</text>`;
+        <rect x="${width / 2 - 198}" y="${height - 16}" width="13" height="13" fill="#171717"></rect>
+        <text x="${width / 2 - 178}" y="${height - 5}" fill="#666" font-size="14" font-weight="700">TikTok giờ live</text>
+        <rect x="${width / 2 - 50}" y="${height - 16}" width="13" height="13" fill="#f4a340"></rect>
+        <text x="${width / 2 - 30}" y="${height - 5}" fill="#666" font-size="14" font-weight="700">Shopee giờ live</text>
+        <line x1="${width / 2 + 126}" x2="${width / 2 + 166}" y1="${height - 10}" y2="${height - 10}" stroke="#2f8379" stroke-width="5" stroke-linecap="round"></line>
+        <text x="${width / 2 + 174}" y="${height - 5}" fill="#666" font-size="14" font-weight="700">GMV/h chung</text>`;
     }
 
     function table(headers, rows, footer = "") {
