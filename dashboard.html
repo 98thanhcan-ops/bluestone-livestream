@@ -226,6 +226,11 @@
     .delta .down { color: var(--bad); font-weight: 700; }
     .delta .flat { color: var(--warn); font-weight: 700; }
 
+    .up { color: var(--good); font-weight: 800; }
+    .down { color: var(--bad); font-weight: 800; }
+    .flat { color: var(--warn); font-weight: 800; }
+    .na { color: var(--muted); font-weight: 700; }
+
     .metric .delta {
       display: grid;
       gap: 3px;
@@ -692,7 +697,8 @@
     }
     function changeText(current, previous, formatter = pct) {
       const d = changeValue(current, previous, formatter);
-      return `<span class="${d.cls}">${d.value}</span>`;
+      const title = d.cls === "up" ? "Tăng" : d.cls === "down" ? "Giảm" : d.cls === "flat" ? "Không đổi" : "Không có dữ liệu so sánh";
+      return `<span class="${d.cls}" title="${title}">${d.value}</span>`;
     }
 
     function formatDuration(hours) {
