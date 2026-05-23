@@ -199,26 +199,60 @@
     }
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 18px 44px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px 20px;
     }
     .metric {
-      min-height: 92px;
+      min-height: 142px;
+      border: 1px solid #d7e6e3;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(31, 86, 116, .08);
+      padding: 16px 16px 14px;
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      gap: 12px 14px;
+      align-items: start;
     }
+    .metric-icon {
+      grid-row: 1 / span 3;
+      width: 58px;
+      height: 58px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--teal);
+      color: #fff;
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: .2px;
+    }
+    .metric:nth-child(2) .metric-icon,
+    .metric:nth-child(6) .metric-icon { background: #efc44f; }
+    .metric:nth-child(3) .metric-icon,
+    .metric:nth-child(7) .metric-icon { background: #ee9b56; }
+    .metric:nth-child(4) .metric-icon,
+    .metric:nth-child(8) .metric-icon { background: #20786f; }
+    .metric-body { min-width: 0; }
     .metric .label {
-      color: #686868;
-      font-weight: 800;
-      font-size: 17px;
-      margin-bottom: 6px;
+      color: #6d7878;
+      font-weight: 900;
+      font-size: 15px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: .2px;
     }
     .metric .value {
-      color: var(--teal);
-      font-size: 32px;
-      letter-spacing: 1px;
-      line-height: 1.1;
+      color: #20786f;
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: .2px;
+      line-height: 1;
+      white-space: nowrap;
     }
     .delta {
-      margin-top: 5px;
+      margin-top: 12px;
       font-size: 13px;
       color: var(--muted);
     }
@@ -233,19 +267,23 @@
 
     .metric .delta {
       display: grid;
-      gap: 3px;
+      gap: 5px;
     }
     .delta-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      max-width: 230px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: baseline;
+      gap: 12px;
+      max-width: 260px;
     }
     .delta-label {
       color: #778184;
+      font-weight: 700;
     }
     .delta-value {
-      font-weight: 800;
+      font-weight: 900;
+      text-align: right;
+      min-width: 64px;
     }
     .metric .delta .up { color: var(--good); }
     .metric .delta .down { color: var(--bad); }
@@ -594,7 +632,15 @@
 
     const el = (id) => document.getElementById(id);
     const fmt = new Intl.NumberFormat("vi-VN");
-    const money = (n) => fmt.format(Math.round(n || 0));
+    function compactNumber(n, suffix = "") {
+      const value = Number(n || 0);
+      const abs = Math.abs(value);
+      const trim = (x) => x.toFixed(2).replace(/\.00$/, "");
+      if (abs >= 1_000_000_000) return `${trim(value / 1_000_000_000)}B${suffix}`;
+      if (abs >= 1_000_000) return `${trim(value / 1_000_000)}M${suffix}`;
+      return `${fmt.format(Math.round(value))}${suffix}`;
+    }
+    const money = (n) => compactNumber(n);
     const pct = (n) => `${((n || 0) * 100).toFixed(2)}%`;
     const one = (n) => fmt.format(Number(n || 0).toFixed(1));
     const iso = (date) => date.toISOString().slice(0, 10);
@@ -719,20 +765,23 @@
     }
     function renderKpis(current, prev, same) {
       const metrics = [
-        ["Doanh số", money(current.revenue), deltaPair(current.revenue, prev.revenue, same.revenue)],
-        ["Số đơn hàng", money(current.orders), deltaPair(current.orders, prev.orders, same.orders)],
-        ["Tỷ lệ chuyển đổi", pct(current.conversion), deltaPair(current.conversion, prev.conversion, same.conversion)],
-        ["Tỷ lệ click", pct(current.clickRate), deltaPair(current.clickRate, prev.clickRate, same.clickRate)],
-        ["Số phiên", money(current.sessions), deltaPair(current.sessions, prev.sessions, same.sessions)],
-        ["Tổng thời lượng", formatDuration(current.hours), deltaPair(current.hours, prev.hours, same.hours)],
-        ["Thời lượng xem TB", formatSeconds(current.avgWatch), deltaPair(current.avgWatch, prev.avgWatch, same.avgWatch)],
-        ["Người xem", money(current.viewers), deltaPair(current.viewers, prev.viewers, same.viewers)],
+        ["Doanh số", compactNumber(current.revenue), deltaPair(current.revenue, prev.revenue, same.revenue), "VND"],
+        ["Số đơn hàng", money(current.orders), deltaPair(current.orders, prev.orders, same.orders), "#"],
+        ["Tỷ lệ chuyển đổi", pct(current.conversion), deltaPair(current.conversion, prev.conversion, same.conversion), "%"],
+        ["Tỷ lệ click", pct(current.clickRate), deltaPair(current.clickRate, prev.clickRate, same.clickRate), "%"],
+        ["Số phiên", money(current.sessions), deltaPair(current.sessions, prev.sessions, same.sessions), "LIVE"],
+        ["Tổng thời lượng", formatDuration(current.hours), deltaPair(current.hours, prev.hours, same.hours), "H"],
+        ["Thời lượng xem TB", formatSeconds(current.avgWatch), deltaPair(current.avgWatch, prev.avgWatch, same.avgWatch), "AVG"],
+        ["Người xem", compactNumber(current.viewers), deltaPair(current.viewers, prev.viewers, same.viewers), "👁"],
       ];
-      el("kpiGrid").innerHTML = metrics.map(([label, value, diff]) => `
+      el("kpiGrid").innerHTML = metrics.map(([label, value, diff, icon]) => `
         <div class="metric">
-          <div class="label">${label}</div>
-          <div class="value">${value}</div>
-          <div class="delta">${diff}</div>
+          <div class="metric-icon">${icon}</div>
+          <div class="metric-body">
+            <div class="label">${label}</div>
+            <div class="value">${value}</div>
+            <div class="delta">${diff}</div>
+          </div>
         </div>`).join("");
     }
 
