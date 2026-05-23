@@ -225,6 +225,46 @@
     .delta .up { color: var(--good); font-weight: 700; }
     .delta .down { color: var(--bad); font-weight: 700; }
     .delta .flat { color: var(--warn); font-weight: 700; }
+
+    .metric .delta {
+      display: grid;
+      gap: 3px;
+    }
+    .delta-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      max-width: 230px;
+    }
+    .delta-label {
+      color: #778184;
+    }
+    .delta-value {
+      font-weight: 800;
+    }
+    .metric .delta .up { color: var(--good); }
+    .metric .delta .down { color: var(--bad); }
+    .metric .delta .flat { color: var(--warn); }
+    .metric .delta .na { color: var(--muted); }
+    .host-performance .panel-title {
+      background: var(--navy);
+      color: #fff;
+      padding: 10px 12px;
+      border: 2px solid #79c6bd;
+    }
+    .host-performance table {
+      table-layout: auto;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+    .host-performance th,
+    .host-performance td {
+      min-width: 112px;
+    }
+    .host-performance th:first-child,
+    .host-performance td:first-child {
+      min-width: 150px;
+    }
     .panel {
       background: var(--panel);
       padding: 0;
@@ -509,6 +549,12 @@
           <div id="detailTable"></div>
         </section>
 
+
+        <section class="panel table-panel host-performance">
+          <div class="panel-title">Host Performance | Selected date range</div>
+          <div id="hostPerformance"></div>
+        </section>
+
         <section class="panel table-panel platform-summary">
           <div class="panel-title">Platform View | Cross-platform summary and diagnostic blocks</div>
           <div id="platformSummary"></div>
@@ -587,6 +633,21 @@
       const start = addDays(end, -(length - 1));
       return { start, end };
     }
+
+    function samePeriodRange(range) {
+      const clampDate = (year, month, day) => new Date(year, month + 1, 0).getDate() < day
+        ? new Date(year, month + 1, 0).getDate()
+        : day;
+      const startMonth = range.start.getMonth() - 1;
+      const startYear = range.start.getFullYear() + Math.floor(startMonth / 12);
+      const normStartMonth = (startMonth + 12) % 12;
+      const endMonth = range.end.getMonth() - 1;
+      const endYear = range.end.getFullYear() + Math.floor(endMonth / 12);
+      const normEndMonth = (endMonth + 12) % 12;
+      const start = new Date(startYear, normStartMonth, clampDate(startYear, normStartMonth, range.start.getDate()));
+      const end = new Date(endYear, normEndMonth, clampDate(endYear, normEndMonth, range.end.getDate()));
+      return { start, end };
+    }
     function passFilters(row, range) {
       const platform = el("platformSelect").value;
       const title = el("titleSelect").value;
@@ -616,13 +677,24 @@
         gpm: (items.reduce((s, r) => s + (r.views || r.viewers), 0)) ? revenue * 1000 / items.reduce((s, r) => s + (r.views || r.viewers), 0) : 0,
       };
     }
-    function delta(current, previous, formatter = pct) {
-      if (!previous) return '<span class="flat">N/A</span> vs kỳ trước';
+    function changeValue(current, previous, formatter = pct) {
+      if (!previous) return { cls: "na", value: "N/A" };
       const change = (current - previous) / Math.abs(previous);
       const cls = change > 0.0001 ? "up" : change < -0.0001 ? "down" : "flat";
       const sign = change > 0 ? "+" : "";
-      return `<span class="${cls}">${sign}${formatter(change)}</span> vs kỳ trước`;
+      return { cls, value: `${sign}${formatter(change)}` };
     }
+    function deltaPair(current, prev, same, formatter = pct) {
+      const p = changeValue(current, prev, formatter);
+      const m = changeValue(current, same, formatter);
+      return `<div class="delta-row"><span class="delta-label">vs kỳ trước</span><span class="delta-value ${p.cls}">${p.value}</span></div>
+        <div class="delta-row"><span class="delta-label">vs cùng kỳ T-1</span><span class="delta-value ${m.cls}">${m.value}</span></div>`;
+    }
+    function changeText(current, previous, formatter = pct) {
+      const d = changeValue(current, previous, formatter);
+      return `<span class="${d.cls}">${d.value}</span>`;
+    }
+
     function formatDuration(hours) {
       const total = Math.round((hours || 0) * 3600);
       const h = Math.floor(total / 3600);
@@ -635,16 +707,16 @@
       if (n < 60) return `${n}s`;
       return `${Math.floor(n / 60)}ph ${n % 60}s`;
     }
-    function renderKpis(current, prev) {
+    function renderKpis(current, prev, same) {
       const metrics = [
-        ["Doanh số", money(current.revenue), delta(current.revenue, prev.revenue)],
-        ["Số đơn hàng", money(current.orders), delta(current.orders, prev.orders)],
-        ["Tỷ lệ chuyển đổi", pct(current.conversion), delta(current.conversion, prev.conversion)],
-        ["Tỷ lệ click", pct(current.clickRate), delta(current.clickRate, prev.clickRate)],
-        ["Số phiên", money(current.sessions), delta(current.sessions, prev.sessions)],
-        ["Tổng thời lượng", formatDuration(current.hours), delta(current.hours, prev.hours)],
-        ["Thời lượng xem TB", formatSeconds(current.avgWatch), delta(current.avgWatch, prev.avgWatch)],
-        ["Người xem", money(current.viewers), delta(current.viewers, prev.viewers)],
+        ["Doanh số", money(current.revenue), deltaPair(current.revenue, prev.revenue, same.revenue)],
+        ["Số đơn hàng", money(current.orders), deltaPair(current.orders, prev.orders, same.orders)],
+        ["Tỷ lệ chuyển đổi", pct(current.conversion), deltaPair(current.conversion, prev.conversion, same.conversion)],
+        ["Tỷ lệ click", pct(current.clickRate), deltaPair(current.clickRate, prev.clickRate, same.clickRate)],
+        ["Số phiên", money(current.sessions), deltaPair(current.sessions, prev.sessions, same.sessions)],
+        ["Tổng thời lượng", formatDuration(current.hours), deltaPair(current.hours, prev.hours, same.hours)],
+        ["Thời lượng xem TB", formatSeconds(current.avgWatch), deltaPair(current.avgWatch, prev.avgWatch, same.avgWatch)],
+        ["Người xem", money(current.viewers), deltaPair(current.viewers, prev.viewers, same.viewers)],
       ];
       el("kpiGrid").innerHTML = metrics.map(([label, value, diff]) => `
         <div class="metric">
@@ -653,6 +725,7 @@
           <div class="delta">${diff}</div>
         </div>`).join("");
     }
+
     function keyFor(row, mode) {
       const d = row.dateObj;
       if (mode === "day") return row.date;
@@ -679,49 +752,54 @@
         svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="#7a8589">Không có dữ liệu trong filter này</text>`;
         return;
       }
-      const width = 1000, height = 360, pad = { l: 42, r: 54, t: 30, b: 54 };
+      const width = 1100, height = 400, pad = { l: 54, r: 70, t: 42, b: 62 };
       const plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
       const maxRev = Math.max(...data.map((d) => d.revenue), 1);
       const maxConv = Math.max(...data.map((d) => d.conversion), 0.01);
-      const barGap = 5;
-      const bw = Math.max(4, (plotW / data.length) - barGap);
+      const barGap = Math.max(3, data.length > 30 ? 3 : 7);
+      const bw = Math.max(5, (plotW / data.length) - barGap);
       const x = (i) => pad.l + i * (plotW / data.length) + barGap / 2;
+      const cx = (i) => x(i) + bw / 2;
       const yRev = (v) => pad.t + plotH - (v / maxRev) * plotH;
       const yConv = (v) => pad.t + plotH - (v / maxConv) * plotH;
+      const labelMoney = (v) => v >= 1000000000 ? `${(v / 1000000000).toFixed(1)}B` : v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : money(v);
+      const labelEvery = data.length <= 14 ? 1 : data.length <= 31 ? 2 : Math.ceil(data.length / 14);
       const bars = data.map((d, i) => {
-        const h = plotH - (yRev(d.revenue) - pad.t);
-        const label = d.revenue >= 1000000 ? `${(d.revenue / 1000000).toFixed(1)}M` : money(d.revenue);
-        const showLabel = data.length <= 45 && d.revenue > maxRev * .12;
-        return `<rect x="${x(i)}" y="${yRev(d.revenue)}" width="${bw}" height="${h}" fill="#559f97"></rect>
-          ${showLabel ? `<text x="${x(i) + bw / 2}" y="${yRev(d.revenue) - 8}" text-anchor="middle" fill="#777" font-size="13">${label}</text>` : ""}`;
+        const h = Math.max(0, plotH - (yRev(d.revenue) - pad.t));
+        const showLabel = i % labelEvery === 0 || d.revenue === maxRev;
+        return `<rect x="${x(i)}" y="${yRev(d.revenue)}" width="${bw}" height="${h}" rx="2" fill="#4f9a92" opacity="0.96"></rect>
+          ${showLabel ? `<text x="${cx(i)}" y="${Math.max(16, yRev(d.revenue) - 10)}" text-anchor="middle" fill="#555" font-size="15" font-weight="800">${labelMoney(d.revenue)}</text>` : ""}`;
       }).join("");
-      const points = data.map((d, i) => `${x(i) + bw / 2},${yConv(d.conversion)}`).join(" ");
-      const convLabels = data.map((d, i) => {
-        if (data.length > 36 || d.conversion < maxConv * .2) return "";
-        return `<text x="${x(i) + bw / 2 + 6}" y="${yConv(d.conversion) - 7}" fill="#777" font-size="12">${pct(d.conversion)}</text>`;
+      const points = data.map((d, i) => `${cx(i)},${yConv(d.conversion)}`).join(" ");
+      const dotLabels = data.map((d, i) => {
+        const showLabel = i % labelEvery === 0 || d.conversion === maxConv;
+        return `<circle cx="${cx(i)}" cy="${yConv(d.conversion)}" r="4" fill="#78ddd2" stroke="#fff" stroke-width="2"></circle>
+          ${showLabel ? `<text x="${cx(i) + 7}" y="${yConv(d.conversion) - 10}" fill="#666" font-size="14" font-weight="800">${pct(d.conversion)}</text>` : ""}`;
       }).join("");
       const xLabels = data.map((d, i) => {
-        const stride = Math.ceil(data.length / 8);
+        const stride = Math.ceil(data.length / 9);
         if (i % stride) return "";
-        return `<text x="${x(i) + bw / 2}" y="${height - 20}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
+        return `<text x="${cx(i)}" y="${height - 24}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
       }).join("");
       const grid = [0, .25, .5, .75, 1].map((t) => {
         const y = pad.t + plotH - t * plotH;
-        return `<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#e6eceb"></line>
-          <text x="${width - pad.r + 8}" y="${y + 4}" fill="#8a8a8a" font-size="11">${Math.round(t * maxConv * 100)}%</text>`;
+        return `<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#e3ecea"></line>
+          <text x="${pad.l - 8}" y="${y + 4}" text-anchor="end" fill="#8a8a8a" font-size="12">${labelMoney(t * maxRev)}</text>
+          <text x="${width - pad.r + 8}" y="${y + 4}" fill="#8a8a8a" font-size="12">${pct(t * maxConv)}</text>`;
       }).join("");
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.innerHTML = `
         <rect width="${width}" height="${height}" fill="#fff"></rect>
         ${grid}
         ${bars}
-        <polyline points="${points}" fill="none" stroke="#8ce0d5" stroke-width="3"></polyline>
-        ${convLabels}${xLabels}
-        <circle cx="${width / 2 - 52}" cy="${height - 6}" r="5" fill="#559f97"></circle>
-        <text x="${width / 2 - 42}" y="${height - 2}" fill="#777" font-size="13">Doanh số</text>
-        <line x1="${width / 2 + 42}" x2="${width / 2 + 78}" y1="${height - 6}" y2="${height - 6}" stroke="#8ce0d5" stroke-width="3"></line>
-        <text x="${width / 2 + 86}" y="${height - 2}" fill="#777" font-size="13">Tỷ lệ chuyển đổi</text>`;
+        <polyline points="${points}" fill="none" stroke="#86ded4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+        ${dotLabels}${xLabels}
+        <circle cx="${width / 2 - 68}" cy="${height - 10}" r="6" fill="#4f9a92"></circle>
+        <text x="${width / 2 - 56}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">Doanh số</text>
+        <line x1="${width / 2 + 52}" x2="${width / 2 + 92}" y1="${height - 10}" y2="${height - 10}" stroke="#86ded4" stroke-width="5" stroke-linecap="round"></line>
+        <text x="${width / 2 + 100}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">Tỷ lệ chuyển đổi</text>`;
     }
+
     function renderHoursChart(items) {
       const svg = el("hoursChart");
       const data = grouped(items, grain);
@@ -729,45 +807,53 @@
         svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="#7a8589">Không có dữ liệu trong filter này</text>`;
         return;
       }
-      const width = 1000, height = 360, pad = { l: 50, r: 66, t: 30, b: 54 };
+      const width = 1100, height = 400, pad = { l: 58, r: 78, t: 42, b: 62 };
       const plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
       const maxHours = Math.max(...data.map((d) => d.hours), 1);
       const maxRevHour = Math.max(...data.map((d) => d.revenuePerHour), 1);
-      const barGap = 5;
-      const bw = Math.max(4, (plotW / data.length) - barGap);
+      const barGap = Math.max(3, data.length > 30 ? 3 : 7);
+      const bw = Math.max(5, (plotW / data.length) - barGap);
       const x = (i) => pad.l + i * (plotW / data.length) + barGap / 2;
+      const cx = (i) => x(i) + bw / 2;
       const yHours = (v) => pad.t + plotH - (v / maxHours) * plotH;
       const yRevHour = (v) => pad.t + plotH - (v / maxRevHour) * plotH;
+      const labelEvery = data.length <= 14 ? 1 : data.length <= 31 ? 2 : Math.ceil(data.length / 14);
       const bars = data.map((d, i) => {
-        const h = plotH - (yHours(d.hours) - pad.t);
-        const showLabel = data.length <= 36 && d.hours > maxHours * .14;
-        return `<rect x="${x(i)}" y="${yHours(d.hours)}" width="${bw}" height="${h}" fill="#2f7f76"></rect>
-          ${showLabel ? `<text x="${x(i) + bw / 2}" y="${yHours(d.hours) - 8}" text-anchor="middle" fill="#777" font-size="12">${one(d.hours)}h</text>` : ""}`;
+        const h = Math.max(0, plotH - (yHours(d.hours) - pad.t));
+        const showLabel = i % labelEvery === 0 || d.hours === maxHours;
+        return `<rect x="${x(i)}" y="${yHours(d.hours)}" width="${bw}" height="${h}" rx="2" fill="#2f8379" opacity="0.98"></rect>
+          ${showLabel ? `<text x="${cx(i)}" y="${Math.max(16, yHours(d.hours) - 10)}" text-anchor="middle" fill="#555" font-size="14" font-weight="800">${one(d.hours)}h</text>` : ""}`;
       }).join("");
-      const points = data.map((d, i) => `${x(i) + bw / 2},${yRevHour(d.revenuePerHour)}`).join(" ");
+      const points = data.map((d, i) => `${cx(i)},${yRevHour(d.revenuePerHour)}`).join(" ");
+      const lineLabels = data.map((d, i) => {
+        const showLabel = i % labelEvery === 0 || d.revenuePerHour === maxRevHour;
+        return `<circle cx="${cx(i)}" cy="${yRevHour(d.revenuePerHour)}" r="4" fill="#f4b541" stroke="#fff" stroke-width="2"></circle>
+          ${showLabel ? `<text x="${cx(i) + 7}" y="${yRevHour(d.revenuePerHour) - 10}" fill="#666" font-size="13" font-weight="800">${money(d.revenuePerHour)}</text>` : ""}`;
+      }).join("");
       const labels = data.map((d, i) => {
-        const stride = Math.ceil(data.length / 8);
+        const stride = Math.ceil(data.length / 9);
         if (i % stride) return "";
-        return `<text x="${x(i) + bw / 2}" y="${height - 20}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
+        return `<text x="${cx(i)}" y="${height - 24}" text-anchor="middle" fill="#777" font-size="13">${d.key}</text>`;
       }).join("");
       const grid = [0, .25, .5, .75, 1].map((t) => {
         const y = pad.t + plotH - t * plotH;
-        return `<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#e6eceb"></line>
-          <text x="${pad.l - 8}" y="${y + 4}" text-anchor="end" fill="#8a8a8a" font-size="11">${one(t * maxHours)}h</text>
-          <text x="${width - pad.r + 8}" y="${y + 4}" fill="#8a8a8a" font-size="11">${money(t * maxRevHour)}</text>`;
+        return `<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#e3ecea"></line>
+          <text x="${pad.l - 8}" y="${y + 4}" text-anchor="end" fill="#8a8a8a" font-size="12">${one(t * maxHours)}h</text>
+          <text x="${width - pad.r + 8}" y="${y + 4}" fill="#8a8a8a" font-size="12">${money(t * maxRevHour)}</text>`;
       }).join("");
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.innerHTML = `
         <rect width="${width}" height="${height}" fill="#fff"></rect>
         ${grid}
         ${bars}
-        <polyline points="${points}" fill="none" stroke="#f0b54d" stroke-width="3"></polyline>
-        ${labels}
-        <circle cx="${width / 2 - 78}" cy="${height - 6}" r="5" fill="#2f7f76"></circle>
-        <text x="${width / 2 - 68}" y="${height - 2}" fill="#777" font-size="13">Số giờ live</text>
-        <line x1="${width / 2 + 40}" x2="${width / 2 + 76}" y1="${height - 6}" y2="${height - 6}" stroke="#f0b54d" stroke-width="3"></line>
-        <text x="${width / 2 + 84}" y="${height - 2}" fill="#777" font-size="13">GMV/h</text>`;
+        <polyline points="${points}" fill="none" stroke="#f4b541" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+        ${lineLabels}${labels}
+        <circle cx="${width / 2 - 82}" cy="${height - 10}" r="6" fill="#2f8379"></circle>
+        <text x="${width / 2 - 70}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">Số giờ live</text>
+        <line x1="${width / 2 + 44}" x2="${width / 2 + 84}" y1="${height - 10}" y2="${height - 10}" stroke="#f4b541" stroke-width="5" stroke-linecap="round"></line>
+        <text x="${width / 2 + 92}" y="${height - 6}" fill="#666" font-size="14" font-weight="700">GMV/h</text>`;
     }
+
     function table(headers, rows, footer = "") {
       if (!rows.length) return '<div class="empty">Không có dữ liệu.</div>';
       return `<table><thead><tr>${headers.map((h) => `<th class="${h.num ? "num" : ""}" style="${h.w ? `width:${h.w}` : ""}">${h.label}</th>`).join("")}</tr></thead>
@@ -808,23 +894,53 @@
       const end = start + 3;
       return `${start}-${end}h`;
     }
-    function renderPlatformViews(items, prevItems) {
+    function renderHostPerformance(items, prevItems, sameItems) {
+      const hosts = DATA.hosts;
+      const totalRev = aggregate(items).revenue || 1;
+      const headers = [
+        { label: "Host" }, { label: "Sessions", num: true }, { label: "Hours", num: true },
+        { label: "Revenue", num: true }, { label: "Orders", num: true }, { label: "Items Sold", num: true },
+        { label: "Viewers", num: true }, { label: "Comments", num: true }, { label: "Interaction Rate", num: true },
+        { label: "Revenue / Hour", num: true }, { label: "Revenue / Session", num: true }, { label: "GPM / 1K Views", num: true },
+        { label: "Revenue Share", num: true }, { label: "Rev %Δ vs Prev", num: true }, { label: "Rev %Δ vs T-1", num: true },
+        { label: "CVR %Δ vs Prev", num: true }, { label: "CVR %Δ vs T-1", num: true },
+      ];
+      const rowHtml = (host, a, p, m, label = host) => {
+        const ir = a.viewers ? a.comments / a.viewers : 0;
+        return `<tr><td>${label}</td><td class="num">${money(a.sessions)}</td><td class="num">${one(a.hours)}</td><td class="num">${money(a.revenue)}</td><td class="num">${money(a.orders)}</td><td class="num">${money(a.units)}</td><td class="num">${money(a.viewers)}</td><td class="num">${money(a.comments)}</td><td class="num">${pct(ir)}</td><td class="num">${money(a.revenuePerHour)}</td><td class="num">${money(a.revenuePerSession)}</td><td class="num">${money(a.gpm)}</td><td class="num">${pct(a.revenue / totalRev)}</td><td class="num">${changeText(a.revenue, p.revenue)}</td><td class="num">${changeText(a.revenue, m.revenue)}</td><td class="num">${changeText(a.conversion, p.conversion)}</td><td class="num">${changeText(a.conversion, m.conversion)}</td></tr>`;
+      };
+      const rowsHtml = hosts.map((host) => {
+        const a = aggregate(items.filter((r) => r.host === host));
+        const p = aggregate(prevItems.filter((r) => r.host === host));
+        const m = aggregate(sameItems.filter((r) => r.host === host));
+        return { host, a, p, m };
+      }).filter((r) => r.a.sessions || r.p.sessions || r.m.sessions)
+        .sort((a, b) => b.a.revenue - a.a.revenue)
+        .map((r) => rowHtml(r.host, r.a, r.p, r.m));
+      const foot = `<tfoot>${rowHtml("Tổng", aggregate(items), aggregate(prevItems), aggregate(sameItems), "Tổng")}</tfoot>`;
+      el("hostPerformance").innerHTML = `<div class="table-scroll">${table(headers, rowsHtml, foot).replace("<table>", '<table class="mini-table">')}</div>`;
+    }
+    function renderPlatformViews(items, prevItems, sameItems) {
       const platforms = ["TikTok", "Shopee"];
       const headers = [
         { label: "Platform" }, { label: "Sessions", num: true }, { label: "Hours", num: true },
         { label: "Revenue", num: true }, { label: "Orders", num: true },
         { label: "Items Sold", num: true }, { label: "Viewers", num: true },
         { label: "Avg Session Min", num: true }, { label: "Revenue / Hour", num: true },
+        { label: "Rev %Δ vs Prev", num: true }, { label: "Rev %Δ vs T-1", num: true },
       ];
       const rowsHtml = platforms.map((p) => {
         const a = aggregate(items.filter((r) => r.platform === p));
-        return `<tr><td>${p}</td><td class="num">${money(a.sessions)}</td><td class="num">${one(a.hours)}</td><td class="num">${money(a.revenue)}</td><td class="num">${money(a.orders)}</td><td class="num">${money(a.units)}</td><td class="num">${money(a.viewers)}</td><td class="num">${one(a.hours / Math.max(a.sessions, 1) * 60)}</td><td class="num">${money(a.revenuePerHour)}</td></tr>`;
+        const b = aggregate(prevItems.filter((r) => r.platform === p));
+        const m = aggregate(sameItems.filter((r) => r.platform === p));
+        return `<tr><td>${p}</td><td class="num">${money(a.sessions)}</td><td class="num">${one(a.hours)}</td><td class="num">${money(a.revenue)}</td><td class="num">${money(a.orders)}</td><td class="num">${money(a.units)}</td><td class="num">${money(a.viewers)}</td><td class="num">${one(a.hours / Math.max(a.sessions, 1) * 60)}</td><td class="num">${money(a.revenuePerHour)}</td><td class="num">${changeText(a.revenue, b.revenue)}</td><td class="num">${changeText(a.revenue, m.revenue)}</td></tr>`;
       });
       el("platformSummary").innerHTML = `<div class="table-scroll">${table(headers, rowsHtml).replace("<table>", '<table class="summary-table">')}</div>`;
       const slots = ["0-3h", "3-6h", "6-9h", "9-12h", "12-15h", "15-18h", "18-21h", "21-24h"];
       el("timeOfDayBlocks").innerHTML = platforms.map((p) => {
         const pItems = items.filter((r) => r.platform === p);
         const pPrev = prevItems.filter((r) => r.platform === p);
+        const pSame = sameItems.filter((r) => r.platform === p);
         const totalRev = aggregate(pItems).revenue || 1;
         const headers = [
           { label: "Nhóm giờ" }, { label: "Sessions", num: true }, { label: "Hours", num: true },
@@ -832,24 +948,27 @@
           { label: "Items Sold", num: true }, { label: "Viewers", num: true }, { label: "Comments", num: true },
           { label: "Interaction Rate", num: true }, { label: "Revenue / Hour", num: true },
           { label: "Revenue / Session", num: true }, { label: "GPM / 1K Views", num: true },
-          { label: "Revenue Share", num: true }, { label: "IR %Δ vs Prev", num: true },
-          { label: "Rev/Hr %Δ vs Prev", num: true }, { label: "GPM %Δ vs Prev", num: true },
+          { label: "Revenue Share", num: true }, { label: "IR %Δ vs Prev", num: true }, { label: "IR %Δ vs T-1", num: true },
+          { label: "Rev/Hr %Δ vs Prev", num: true }, { label: "Rev/Hr %Δ vs T-1", num: true },
+          { label: "GPM %Δ vs Prev", num: true }, { label: "GPM %Δ vs T-1", num: true },
         ];
-        const rowHtml = (slot, a, b, label = slot) => {
+        const rowHtml = (slot, a, b, m, label = slot) => {
           const ir = a.viewers ? a.comments / a.viewers : 0;
           const pir = b.viewers ? b.comments / b.viewers : 0;
-          const d = (x, y) => y ? pct((x - y) / Math.abs(y)) : "N/A";
-          return `<tr><td>${label}</td><td class="num">${money(a.sessions)}</td><td class="num">${one(a.hours)}</td><td class="num">${money(a.revenue)}</td><td class="num">${money(a.orders)}</td><td class="num">${money(a.units)}</td><td class="num">${money(a.viewers)}</td><td class="num">${money(a.comments)}</td><td class="num">${pct(ir)}</td><td class="num">${money(a.revenuePerHour)}</td><td class="num">${money(a.revenuePerSession)}</td><td class="num">${money(a.gpm)}</td><td class="num">${pct(a.revenue / totalRev)}</td><td class="num">${d(ir, pir)}</td><td class="num">${d(a.revenuePerHour, b.revenuePerHour)}</td><td class="num">${d(a.gpm, b.gpm)}</td></tr>`;
+          const mir = m.viewers ? m.comments / m.viewers : 0;
+          return `<tr><td>${label}</td><td class="num">${money(a.sessions)}</td><td class="num">${one(a.hours)}</td><td class="num">${money(a.revenue)}</td><td class="num">${money(a.orders)}</td><td class="num">${money(a.units)}</td><td class="num">${money(a.viewers)}</td><td class="num">${money(a.comments)}</td><td class="num">${pct(ir)}</td><td class="num">${money(a.revenuePerHour)}</td><td class="num">${money(a.revenuePerSession)}</td><td class="num">${money(a.gpm)}</td><td class="num">${pct(a.revenue / totalRev)}</td><td class="num">${changeText(ir, pir)}</td><td class="num">${changeText(ir, mir)}</td><td class="num">${changeText(a.revenuePerHour, b.revenuePerHour)}</td><td class="num">${changeText(a.revenuePerHour, m.revenuePerHour)}</td><td class="num">${changeText(a.gpm, b.gpm)}</td><td class="num">${changeText(a.gpm, m.gpm)}</td></tr>`;
         };
         const body = slots.map((slot) => {
           const a = aggregate(pItems.filter((r) => timeSlot(r) === slot));
           const b = aggregate(pPrev.filter((r) => timeSlot(r) === slot));
-          return rowHtml(slot, a, b);
+          const m = aggregate(pSame.filter((r) => timeSlot(r) === slot));
+          return rowHtml(slot, a, b, m);
         });
-        const totalFooter = `<tfoot>${rowHtml("Tổng", aggregate(pItems), aggregate(pPrev), "Tổng")}</tfoot>`;
+        const totalFooter = `<tfoot>${rowHtml("Tổng", aggregate(pItems), aggregate(pPrev), aggregate(pSame), "Tổng")}</tfoot>`;
         return `<div><div class="block-title">${p} Time-of-Day View | Selected date range</div><div class="table-scroll">${table(headers, body, totalFooter).replace("<table>", '<table class="mini-table tod-table">')}</div></div>`;
       }).join("");
     }
+
     function updateOptions() {
       el("platformSelect").innerHTML = `<option>All</option>${DATA.platforms.map((p) => `<option>${p}</option>`).join("")}`;
       el("titleSelect").innerHTML = `<option>All</option>${DATA.titles.map((t) => `<option>${t}</option>`).join("")}`;
@@ -860,17 +979,22 @@
     function render() {
       const range = selectedRange();
       const prev = previousRange(range);
+      const same = samePeriodRange(range);
       const items = rows.filter((r) => passFilters(r, range));
       const prevItems = rows.filter((r) => passFilters(r, prev));
+      const sameItems = rows.filter((r) => passFilters(r, same));
       const current = aggregate(items);
       const previous = aggregate(prevItems);
-      el("periodText").textContent = `Khoảng thời gian: ${dateLabel(range.start)} - ${dateLabel(range.end)}`;
-      renderKpis(current, previous);
+      const samePeriod = aggregate(sameItems);
+      el("periodText").textContent = `Khoảng thời gian: ${dateLabel(range.start)} - ${dateLabel(range.end)} | Kỳ trước: ${dateLabel(prev.start)} - ${dateLabel(prev.end)} | Cùng kỳ T-1: ${dateLabel(same.start)} - ${dateLabel(same.end)}`;
+      renderKpis(current, previous, samePeriod);
       renderChart(items);
       renderHoursChart(items);
       renderDetail(items);
-      renderPlatformViews(items, prevItems);
+      renderHostPerformance(items, prevItems, sameItems);
+      renderPlatformViews(items, prevItems, sameItems);
     }
+
     updateOptions();
     document.querySelectorAll("input, select").forEach((input) => input.addEventListener("change", render));
     el("grainButtons").addEventListener("click", (event) => {
