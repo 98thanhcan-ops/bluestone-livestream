@@ -1138,7 +1138,14 @@
       return intervals;
     }
 
-    function renderOtBuilding(items) {
+    function filterSummary(range, items) {
+      const platform = el("platformSelect").value;
+      const title = el("titleSelect").value;
+      const host = el("hostSelect").value;
+      return `Filter đang áp dụng: ${dateLabel(range.start)} - ${dateLabel(range.end)} | Sàn: ${platform} | Phiên: ${title} | Host: ${host} | ${money(items.length)} phiên sau filter`;
+    }
+
+    function renderOtBuilding(items, range) {
       const dayGroups = new Map();
       items.forEach((row) => {
         otIntervalsForRow(row).forEach((interval) => {
@@ -1189,7 +1196,7 @@
       const totalSessions = dayRows.reduce((sum, row) => sum + row.rawSessions, 0);
       const totalSlots = dayRows.reduce((sum, row) => sum + row.mergedSlots, 0);
       const foot = `<tfoot><tr><td colspan="4">Tổng</td><td class="num">${money(totalSessions)}</td><td class="num">${money(totalSlots)}</td><td class="num">${one(total)}h</td></tr></tfoot>`;
-      const note = `<div class="empty" style="text-align:left;margin-top:8px;">Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; cùng ngày nếu nhiều phiên trùng/overlap cùng khung giờ thì gộp interval và chỉ tính 1 lần cho toà nhà.</div>`;
+      const note = `<div class="empty" style="text-align:left;margin-top:8px;">${filterSummary(range, items)}<br>Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; cùng ngày nếu nhiều phiên trùng/overlap cùng khung giờ thì gộp interval và chỉ tính 1 lần cho toà nhà.</div>`;
       el("otBuildingTable").innerHTML = `<div class="table-scroll">${table(headers, rowsHtml, foot).replace("<table>", '<table class="summary-table">')}</div>${note}`;
     }
 
@@ -1217,11 +1224,16 @@
       renderDetail(items);
       renderHostPerformance(items, prevItems, sameItems);
       renderPlatformViews(items, prevItems, sameItems);
-      renderOtBuilding(items);
+      renderOtBuilding(items, range);
     }
 
     updateOptions();
     document.querySelectorAll("input, select").forEach((input) => input.addEventListener("change", render));
+    ["startDate", "endDate"].forEach((id) => el(id).addEventListener("change", () => {
+      const custom = document.querySelector('input[name="range"][value="custom"]');
+      if (custom) custom.checked = true;
+      render();
+    }));
     el("grainButtons").addEventListener("click", (event) => {
       const button = event.target.closest("button");
       if (!button) return;
