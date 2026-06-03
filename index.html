@@ -607,6 +607,11 @@
           <div id="platformSummary"></div>
           <div class="platform-blocks" id="timeOfDayBlocks"></div>
         </section>
+
+        <section class="panel table-panel">
+          <div class="panel-title">OT trả tiền toà nhà</div>
+          <div id="otBuildingTable"></div>
+        </section>
       </div>
     </main>
   </div>
@@ -1086,6 +1091,100 @@
       }).join("");
     }
 
+    function mergeIntervals(intervals) {
+      const sorted = intervals
+        .filter((i) => i.end > i.start)
+        .sort((a, b) => a.start - b.start);
+      const merged = [];
+      sorted.forEach((interval) => {
+        const last = merged[merged.length - 1];
+        if (!last || interval.start > last.end) {
+          merged.push({ ...interval });
+        } else {
+          last.end = Math.max(last.end, interval.end);
+        }
+      });
+      return merged;
+    }
+
+    function otIntervalsForRow(row) {
+      if ((row.host || "").includes("Lemon")) return [];
+      const start = new Date(`${row.date}T${row.start_time || "00:00"}:00`);
+      const end = new Date(start.getTime() + (row.duration_hours || 0) * 3600000);
+      if (!(end > start)) return [];
+      const intervals = [];
+      const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      while (cursor <= lastDay) {
+        const weekday = cursor.getDay();
+        const dayStart = new Date(cursor);
+        const dayEnd = new Date(cursor);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const otStart = weekday === 0 ? dayStart : new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 18, 0, 0);
+        const otEnd = weekday === 0 ? dayEnd : dayEnd;
+        const clippedStart = Math.max(start.getTime(), otStart.getTime());
+        const clippedEnd = Math.min(end.getTime(), otEnd.getTime());
+        if (clippedEnd > clippedStart) {
+          intervals.push({
+            host: row.host,
+            date: iso(cursor),
+            type: weekday === 0 ? "Chủ nhật cả ngày" : "T2-T7 sau 18h",
+            start: clippedStart,
+            end: clippedEnd,
+          });
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return intervals;
+    }
+
+    function renderOtBuilding(items) {
+      const grouped = new Map();
+      items.forEach((row) => {
+        otIntervalsForRow(row).forEach((interval) => {
+          const key = `${interval.host}|${interval.date}|${interval.type}`;
+          if (!grouped.has(key)) grouped.set(key, { host: interval.host, date: interval.date, type: interval.type, intervals: [] });
+          grouped.get(key).intervals.push(interval);
+        });
+      });
+
+      const detail = [...grouped.values()].map((group) => {
+        const merged = mergeIntervals(group.intervals);
+        const hours = merged.reduce((sum, interval) => sum + (interval.end - interval.start) / 3600000, 0);
+        return { ...group, hours };
+      }).filter((row) => row.hours > 0);
+
+      const byHost = new Map();
+      detail.forEach((row) => {
+        if (!byHost.has(row.host)) byHost.set(row.host, { host: row.host, evening: 0, sunday: 0, total: 0, days: new Set() });
+        const item = byHost.get(row.host);
+        if (row.type === "Chủ nhật cả ngày") item.sunday += row.hours;
+        else item.evening += row.hours;
+        item.total += row.hours;
+        item.days.add(row.date);
+      });
+
+      const headers = [
+        { label: "Host" },
+        { label: "T2-T7 sau 18h", num: true },
+        { label: "Chủ nhật cả ngày", num: true },
+        { label: "Tổng giờ OT", num: true },
+        { label: "Số ngày có OT", num: true },
+      ];
+      const rowsHtml = [...byHost.values()]
+        .sort((a, b) => b.total - a.total)
+        .map((row) => `<tr><td>${row.host}</td><td class="num">${one(row.evening)}h</td><td class="num">${one(row.sunday)}h</td><td class="num">${one(row.total)}h</td><td class="num">${money(row.days.size)}</td></tr>`);
+      const total = [...byHost.values()].reduce((acc, row) => ({
+        evening: acc.evening + row.evening,
+        sunday: acc.sunday + row.sunday,
+        total: acc.total + row.total,
+        days: acc.days + row.days.size,
+      }), { evening: 0, sunday: 0, total: 0, days: 0 });
+      const foot = `<tfoot><tr><td>Tổng</td><td class="num">${one(total.evening)}h</td><td class="num">${one(total.sunday)}h</td><td class="num">${one(total.total)}h</td><td class="num">${money(total.days)}</td></tr></tfoot>`;
+      const note = `<div class="empty" style="text-align:left;margin-top:8px;">Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; các phiên trùng khung giờ cùng host được merge để không cộng trùng nhiều kênh.</div>`;
+      el("otBuildingTable").innerHTML = `<div class="table-scroll">${table(headers, rowsHtml, foot).replace("<table>", '<table class="summary-table">')}</div>${note}`;
+    }
+
     function updateOptions() {
       el("platformSelect").innerHTML = `<option>All</option>${DATA.platforms.map((p) => `<option>${p}</option>`).join("")}`;
       el("titleSelect").innerHTML = `<option>All</option>${DATA.titles.map((t) => `<option>${t}</option>`).join("")}`;
@@ -1110,6 +1209,7 @@
       renderDetail(items);
       renderHostPerformance(items, prevItems, sameItems);
       renderPlatformViews(items, prevItems, sameItems);
+      renderOtBuilding(items);
     }
 
     updateOptions();
