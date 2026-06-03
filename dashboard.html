@@ -1139,52 +1139,57 @@
     }
 
     function renderOtBuilding(items) {
-      const shifts = new Map();
+      const dayGroups = new Map();
       items.forEach((row) => {
-        const intervals = otIntervalsForRow(row);
-        const hours = intervals.reduce((sum, interval) => sum + (interval.end - interval.start) / 3600000, 0);
-        if (!hours) return;
-        const key = row.session_key || `${row.date} ${row.daypart}`;
-        const current = shifts.get(key);
-        const candidate = { row, hours, intervals };
-        if (!current || candidate.hours > current.hours) shifts.set(key, candidate);
+        otIntervalsForRow(row).forEach((interval) => {
+          const key = `${interval.date}|${interval.type}`;
+          if (!dayGroups.has(key)) {
+            dayGroups.set(key, { date: interval.date, type: interval.type, intervals: [], sessions: new Set() });
+          }
+          const group = dayGroups.get(key);
+          group.intervals.push(interval);
+          group.sessions.add(`${row.platform}|${row.host}|${row.start_time}|${row.duration_hours}`);
+        });
       });
 
-      const shiftRows = [...shifts.values()]
-        .map((item) => {
-          const row = item.row;
-          const types = [...new Set(item.intervals.map((interval) => interval.type))].join(" + ");
-          const start = new Date(`${row.date}T${row.start_time || "00:00"}:00`);
-          const end = new Date(start.getTime() + (row.duration_hours || 0) * 3600000);
+      const timeLabel = (ms) => {
+        const d = new Date(ms);
+        return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      };
+      const dayRows = [...dayGroups.values()]
+        .map((group) => {
+          const merged = mergeIntervals(group.intervals);
+          const dateObj = new Date(`${group.date}T00:00:00`);
+          const hours = merged.reduce((sum, interval) => sum + (interval.end - interval.start) / 3600000, 0);
           return {
-            date: row.date,
-            weekday: start.getDay(),
-            daypart: row.daypart,
-            platform: row.platform,
-            host: row.host,
-            startTime: row.start_time,
-            endTime: `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`,
-            type: types,
-            hours: item.hours,
+            date: group.date,
+            weekday: dateObj.getDay(),
+            type: group.type,
+            rawSessions: group.sessions.size,
+            mergedSlots: merged.length,
+            slots: merged.map((interval) => `${timeLabel(interval.start)}-${timeLabel(interval.end)}`).join(", "),
+            hours,
           };
         })
-        .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+        .filter((row) => row.hours > 0)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.type.localeCompare(b.type));
 
       const headers = [
         { label: "Ngày" },
         { label: "Thứ" },
-        { label: "Ca live" },
-        { label: "Kênh được tính" },
-        { label: "Host" },
-        { label: "Giờ live" },
         { label: "Rule OT" },
+        { label: "Khung giờ tính tiền" },
+        { label: "Phiên OT gốc", num: true },
+        { label: "Khung sau gộp", num: true },
         { label: "Giờ OT", num: true },
       ];
       const weekdayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
-      const rowsHtml = shiftRows.map((row) => `<tr><td>${row.date}</td><td>${weekdayLabels[row.weekday]}</td><td>${row.daypart}</td><td>${row.platform}</td><td>${row.host}</td><td>${row.startTime} - ${row.endTime}</td><td>${row.type}</td><td class="num">${one(row.hours)}h</td></tr>`);
-      const total = shiftRows.reduce((sum, row) => sum + row.hours, 0);
-      const foot = `<tfoot><tr><td colspan="7">Tổng</td><td class="num">${one(total)}h</td></tr></tfoot>`;
-      const note = `<div class="empty" style="text-align:left;margin-top:8px;">Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; các phiên cùng ca live được gom lại và chỉ lấy phiên có giờ OT dài nhất, dù phiên đó là TikTok hay Shopee.</div>`;
+      const rowsHtml = dayRows.map((row) => `<tr><td>${row.date}</td><td>${weekdayLabels[row.weekday]}</td><td>${row.type}</td><td>${row.slots}</td><td class="num">${money(row.rawSessions)}</td><td class="num">${money(row.mergedSlots)}</td><td class="num">${one(row.hours)}h</td></tr>`);
+      const total = dayRows.reduce((sum, row) => sum + row.hours, 0);
+      const totalSessions = dayRows.reduce((sum, row) => sum + row.rawSessions, 0);
+      const totalSlots = dayRows.reduce((sum, row) => sum + row.mergedSlots, 0);
+      const foot = `<tfoot><tr><td colspan="4">Tổng</td><td class="num">${money(totalSessions)}</td><td class="num">${money(totalSlots)}</td><td class="num">${one(total)}h</td></tr></tfoot>`;
+      const note = `<div class="empty" style="text-align:left;margin-top:8px;">Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; cùng ngày nếu nhiều phiên trùng/overlap cùng khung giờ thì gộp interval và chỉ tính 1 lần cho toà nhà.</div>`;
       el("otBuildingTable").innerHTML = `<div class="table-scroll">${table(headers, rowsHtml, foot).replace("<table>", '<table class="summary-table">')}</div>${note}`;
     }
 
