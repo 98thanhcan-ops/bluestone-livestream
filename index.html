@@ -344,6 +344,18 @@
       background: var(--teal);
       color: #fff;
     }
+    .ghost-button {
+      border: 1px solid var(--teal);
+      background: #fff;
+      color: var(--teal);
+      padding: 8px 12px;
+      font-weight: 800;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .ghost-button:hover {
+      background: var(--mint);
+    }
     .chart-wrap {
       height: 430px;
       padding: 4px 14px 16px;
@@ -609,7 +621,10 @@
         </section>
 
         <section class="panel table-panel">
-          <div class="panel-title">OT trả tiền toà nhà</div>
+          <div class="panel-header">
+            <div class="panel-title">OT trả tiền toà nhà</div>
+            <button id="downloadOtCsv" class="ghost-button" type="button">Tải CSV OT</button>
+          </div>
           <div id="otBuildingTable"></div>
         </section>
       </div>
@@ -1113,6 +1128,7 @@
       const end = new Date(start.getTime() + (row.duration_hours || 0) * 3600000);
       if (!(end > start)) return [];
       const intervals = [];
+      const localDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
       const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
       while (cursor <= lastDay) {
@@ -1127,7 +1143,7 @@
         if (clippedEnd > clippedStart) {
           intervals.push({
             host: row.host,
-            date: iso(cursor),
+            date: localDate(cursor),
             type: weekday === 0 ? "Chủ nhật cả ngày" : "T2-T7 sau 18h",
             start: clippedStart,
             end: clippedEnd,
@@ -1144,6 +1160,8 @@
       const host = el("hostSelect").value;
       return `Filter đang áp dụng: ${dateLabel(range.start)} - ${dateLabel(range.end)} | Sàn: ${platform} | Phiên: ${title} | Host: ${host} | ${money(items.length)} phiên sau filter`;
     }
+
+    let lastOtRows = [];
 
     function renderOtBuilding(items, range) {
       const dayGroups = new Map();
@@ -1180,6 +1198,7 @@
         })
         .filter((row) => row.hours > 0)
         .sort((a, b) => a.date.localeCompare(b.date) || a.type.localeCompare(b.type));
+      lastOtRows = dayRows;
 
       const headers = [
         { label: "Ngày" },
@@ -1196,8 +1215,39 @@
       const totalSessions = dayRows.reduce((sum, row) => sum + row.rawSessions, 0);
       const totalSlots = dayRows.reduce((sum, row) => sum + row.mergedSlots, 0);
       const foot = `<tfoot><tr><td colspan="4">Tổng</td><td class="num">${money(totalSessions)}</td><td class="num">${money(totalSlots)}</td><td class="num">${one(total)}h</td></tr></tfoot>`;
-      const note = `<div class="empty" style="text-align:left;margin-top:8px;">${filterSummary(range, items)}<br>Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; cùng ngày nếu nhiều phiên trùng/overlap cùng khung giờ thì gộp interval và chỉ tính 1 lần cho toà nhà.</div>`;
+      const note = `<div class="empty" style="text-align:left;margin-top:8px;">${filterSummary(range, items)}<br>Logic: lấy tất cả phiên OT sau filter, cắt về khung OT hợp lệ, rồi gộp các khung giờ bị trùng/overlap trong cùng ngày. Nếu nhiều phiên chạy cùng lúc thì phần trùng chỉ tính 1 lần cho toà nhà; nếu có nhiều khung không trùng trong cùng ngày thì cộng đủ các khung đó.<br>Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày.</div>`;
       el("otBuildingTable").innerHTML = `<div class="table-scroll">${table(headers, rowsHtml, foot).replace("<table>", '<table class="summary-table">')}</div>${note}`;
+    }
+
+    function csvCell(value) {
+      const text = String(value ?? "");
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    }
+
+    function downloadOtCsv() {
+      const headers = ["Ngày", "Thứ", "Rule OT", "Khung giờ tính tiền", "Phiên OT gốc", "Khung sau gộp", "Giờ OT"];
+      const weekdayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+      const lines = [headers.map(csvCell).join(",")];
+      lastOtRows.forEach((row) => {
+        lines.push([
+          row.date,
+          weekdayLabels[row.weekday],
+          row.type,
+          row.slots,
+          row.rawSessions,
+          row.mergedSlots,
+          one(row.hours),
+        ].map(csvCell).join(","));
+      });
+      const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ot-tra-tien-toa-nha-${iso(selectedRange().start)}-${iso(selectedRange().end)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
     }
 
     function updateOptions() {
@@ -1234,6 +1284,7 @@
       if (custom) custom.checked = true;
       render();
     }));
+    el("downloadOtCsv").addEventListener("click", downloadOtCsv);
     el("grainButtons").addEventListener("click", (event) => {
       const button = event.target.closest("button");
       if (!button) return;
