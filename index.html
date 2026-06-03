@@ -1139,49 +1139,52 @@
     }
 
     function renderOtBuilding(items) {
-      const grouped = new Map();
+      const shifts = new Map();
       items.forEach((row) => {
-        otIntervalsForRow(row).forEach((interval) => {
-          const key = `${interval.host}|${interval.date}|${interval.type}`;
-          if (!grouped.has(key)) grouped.set(key, { host: interval.host, date: interval.date, type: interval.type, intervals: [] });
-          grouped.get(key).intervals.push(interval);
-        });
+        const intervals = otIntervalsForRow(row);
+        const hours = intervals.reduce((sum, interval) => sum + (interval.end - interval.start) / 3600000, 0);
+        if (!hours) return;
+        const key = row.session_key || `${row.date} ${row.daypart}`;
+        const current = shifts.get(key);
+        const candidate = { row, hours, intervals };
+        if (!current || candidate.hours > current.hours) shifts.set(key, candidate);
       });
 
-      const detail = [...grouped.values()].map((group) => {
-        const merged = mergeIntervals(group.intervals);
-        const hours = merged.reduce((sum, interval) => sum + (interval.end - interval.start) / 3600000, 0);
-        return { ...group, hours };
-      }).filter((row) => row.hours > 0);
-
-      const byHost = new Map();
-      detail.forEach((row) => {
-        if (!byHost.has(row.host)) byHost.set(row.host, { host: row.host, evening: 0, sunday: 0, total: 0, days: new Set() });
-        const item = byHost.get(row.host);
-        if (row.type === "Chủ nhật cả ngày") item.sunday += row.hours;
-        else item.evening += row.hours;
-        item.total += row.hours;
-        item.days.add(row.date);
-      });
+      const shiftRows = [...shifts.values()]
+        .map((item) => {
+          const row = item.row;
+          const types = [...new Set(item.intervals.map((interval) => interval.type))].join(" + ");
+          const start = new Date(`${row.date}T${row.start_time || "00:00"}:00`);
+          const end = new Date(start.getTime() + (row.duration_hours || 0) * 3600000);
+          return {
+            date: row.date,
+            weekday: start.getDay(),
+            daypart: row.daypart,
+            platform: row.platform,
+            host: row.host,
+            startTime: row.start_time,
+            endTime: `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`,
+            type: types,
+            hours: item.hours,
+          };
+        })
+        .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
 
       const headers = [
+        { label: "Ngày" },
+        { label: "Thứ" },
+        { label: "Ca live" },
+        { label: "Kênh được tính" },
         { label: "Host" },
-        { label: "T2-T7 sau 18h", num: true },
-        { label: "Chủ nhật cả ngày", num: true },
-        { label: "Tổng giờ OT", num: true },
-        { label: "Số ngày có OT", num: true },
+        { label: "Giờ live" },
+        { label: "Rule OT" },
+        { label: "Giờ OT", num: true },
       ];
-      const rowsHtml = [...byHost.values()]
-        .sort((a, b) => b.total - a.total)
-        .map((row) => `<tr><td>${row.host}</td><td class="num">${one(row.evening)}h</td><td class="num">${one(row.sunday)}h</td><td class="num">${one(row.total)}h</td><td class="num">${money(row.days.size)}</td></tr>`);
-      const total = [...byHost.values()].reduce((acc, row) => ({
-        evening: acc.evening + row.evening,
-        sunday: acc.sunday + row.sunday,
-        total: acc.total + row.total,
-        days: acc.days + row.days.size,
-      }), { evening: 0, sunday: 0, total: 0, days: 0 });
-      const foot = `<tfoot><tr><td>Tổng</td><td class="num">${one(total.evening)}h</td><td class="num">${one(total.sunday)}h</td><td class="num">${one(total.total)}h</td><td class="num">${money(total.days)}</td></tr></tfoot>`;
-      const note = `<div class="empty" style="text-align:left;margin-top:8px;">Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; các phiên trùng khung giờ cùng host được merge để không cộng trùng nhiều kênh.</div>`;
+      const weekdayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+      const rowsHtml = shiftRows.map((row) => `<tr><td>${row.date}</td><td>${weekdayLabels[row.weekday]}</td><td>${row.daypart}</td><td>${row.platform}</td><td>${row.host}</td><td>${row.startTime} - ${row.endTime}</td><td>${row.type}</td><td class="num">${one(row.hours)}h</td></tr>`);
+      const total = shiftRows.reduce((sum, row) => sum + row.hours, 0);
+      const foot = `<tfoot><tr><td colspan="7">Tổng</td><td class="num">${one(total)}h</td></tr></tfoot>`;
+      const note = `<div class="empty" style="text-align:left;margin-top:8px;">Rule: loại Lemon; T2-T7 chỉ tính phần sau 18:00; Chủ nhật tính cả ngày; các phiên cùng ca live được gom lại và chỉ lấy phiên có giờ OT dài nhất, dù phiên đó là TikTok hay Shopee.</div>`;
       el("otBuildingTable").innerHTML = `<div class="table-scroll">${table(headers, rowsHtml, foot).replace("<table>", '<table class="summary-table">')}</div>${note}`;
     }
 
